@@ -1,0 +1,575 @@
+---
+title: "Assignment 2"
+author: "Statistics and Data Science 365/565"
+date: 'Due: September 27 (midnight)'
+output:
+  pdf_document: 
+     highlight: haddock
+  html_document: default
+params:
+  ShowCode: no
+  ShowOut: no
+---
+
+\newcommand{\trans}{{\scriptstyle T}}
+\newcommand{\reals}{\mathbb R}
+\newcommand{\argmin}{\mathop{\rm arg\,min}}
+\let\hat\widehat
+
+This homework treats classification and cross validation, and gives you more experience using R. 
+
+```{r read.data, include=TRUE}
+library(FNN)
+train <- read.csv("spam_train.csv")
+test <- read.csv("spam_test.csv")
+```
+
+
+# Problem 1: Spam, wonderful spam! (30 points)
+
+
+## Background
+
+The dataset consists of a collection of 57 features relating to about 4600 
+emails and a label of whether or not the email is considered spam. 
+You have a training set containing about 70% of the data and a test 
+set containing about 30% of the data. Your job is to build effective spam
+classification rules using the predictors.
+
+### A Note about Features
+
+The column names (in the first row of each .csv file) are fairly self-explanatory.
+
+* Some variables are named `word_freq_(word)`, which suggests a calculation of 
+the frequency of how many times a specific word appears in the email, expressed
+as a percentage of total words in the email multiplied by 100.
+
+* Some variables are named `char_freq_(number)`, which suggests a count of the
+frequency of the specific ensuing character, expressed as a percentage of total 
+characters in the email multiplied by 100. Note, these characters are
+not valid column names in R, but you can view them in the raw 
+.csv file. 
+
+* Some variables are named `capital_run_length_(number)` which suggests some 
+information about the average (or maximum length of, or total) consecutive capital 
+letters in the email.
+
+* `spam`: This is the response variable, 0 = not spam, 1 = spam.
+
+### Missing Values
+
+Unfortunately, the `capital_run_length_average` variable is corrupted and as a
+result, contains a fair number of missing values. These show up as `NA` (the
+default way of representing missing values in R.)
+
+## Your Task
+
+
+### Part 1 (20%)
+
+Use $k$-nearest neighbors regression with $k=15$ to **impute** the missing values in
+the `capital_run_length_average` column using the other predictors after
+standardizing (i.e. rescaling) them. You may use a package such as \texttt{FNN} that has $k$-nearest 
+neighbors regression as a built-in function. There is no penalty for using 
+a built-in function.
+
+When you are done with this part, you should have no more NA's in the
+`capital_run_length_average` column in either the training or the test set. 
+Make sure you show all of your work.
+
+```{r}
+#Standardize all the columns except the `capital_run_length_average` column.
+#We also dont want to include and standardize the spam indicator in the train data.
+means <- colMeans(train[-c(55,58)])
+sds <- apply(train[-c(55,58)], 2, sd)
+for (x in names(train[-c(55,58)])){
+     train[x] <- (train[x]-means[x])/sds[x]
+     test[x] <- (test[x]-means[x])/sds[x]
+}
+
+#Now we do knn regression to predict the missing values. On the test and the training data.
+train_knnreg <- knn.reg(train=train[!is.na(train$capital_run_length_average),][-c(55,58)],test=train[is.na(train$capital_run_length_average),][-c(55,58)],y=train$capital_run_length_average[!is.na(train$capital_run_length_average)],k=15)
+test_knnreg <- knn.reg(train=test[!is.na(test$capital_run_length_average),][-55],test=test[is.na(test$capital_run_length_average),][-55],y=test$capital_run_length_average[!is.na(test$capital_run_length_average)],k=15)
+
+#Now we need to impute these prediction values into our original data.
+train$capital_run_length_average[is.na(train$capital_run_length_average)] <- train_knnreg$pred
+sum(is.na(train$capital_run_length_average))
+test$capital_run_length_average[is.na(test$capital_run_length_average)] <- test_knnreg$pred
+sum(is.na(test$capital_run_length_average))
+```
+
+
+### Part 2 (20%)
+
+Write a function named `knnclass()` that performs k-nearest neighbors 
+classification. This function will be more sophisticated than the base
+function in the following way:
+
+* The function should automatically do a split of the training data into a 
+sub-training set (80%) and a validation set (20%) for selecting the optimal $k$.
+(More sophisticated cross-validation is not necessary.)
+
+* The function should standardize each column: for a particular variable, say $x_1$, compute the mean and standard deviation of $x_1$ **using the training set only**, 
+say $\bar x_1$ and $s_1$; then for each observed $x_1$ in the training set and 
+test set, subtract $\bar x_1$, then divide by $s_1$. 
+
+Function skeletons:
+
+In R, start with:
+
+```{r, eval=F}
+knnclass <- function(xtrain, xtest, ytrain)
+```
+
+Note: You can assume that all columns will be numeric and that Euclidean 
+distance is the distance measure.
+
+```{r}
+knnclass <- function(xtrain, xtest, ytrain) {
+  set.seed(1)
+  #Standardize the xtrain and xtest in general.
+  means <- colMeans(xtrain)
+  sds <- apply(xtrain, 2, sd)
+  for (x in names(xtrain)) {
+      xtrain[x] <- (xtrain[x]-means[x])/sds[x]
+      xtest[x] <- (xtest[x]-means[x])/sds[x]
+  }
+  
+  #Split training into 20% validation set and 80% subtraining set.
+  sample_size <- round(nrow(xtrain)*.20,digits=0)
+  validationrows <- sample(nrow(xtrain), sample_size,replace=FALSE)
+  validation <- xtrain[validationrows,]
+  subtrain <- xtrain[-validationrows,]
+  subtrain_labels <- ytrain[-validationrows]
+  
+  #Standardize subtrain and validation data.
+  means <- colMeans(subtrain)
+  sds <- apply(subtrain, 2, sd)
+  for (x in names(subtrain)) {
+      subtrain[x] <- (subtrain[x]-means[x])/sds[x]
+      validation[x] <- (validation[x]-means[x])/sds[x]
+  }
+  
+  #Train model on the different values of k (here we look from 1 to 30).
+  train_error <- rep(0,30)
+  for (k in c(1:30)) {
+    trainmod <- knn(train=subtrain,test=validation,cl=subtrain_labels,k=k)
+    train_error[k] <- (sum(subtrain_labels != trainmod))/length(subtrain_labels)
+  }
+  
+  #Choose k where the train_error is minimal, this is our optimal k to use for knn on the test data.
+  k_optimal <- match(min(train_error),train_error) 
+  testmod <- knn(train=xtrain,test=xtest,cl=ytrain,k=k_optimal)
+  
+  #Let's observe a plot of the training k values to see our optimal k.
+  #plot(train_error,type="o",xlab="k values",ylab="Misclassification Error",main="Choosing Optimal K from Training Error")
+  
+  #Return the predicted values on the test data. Print the optimal k.
+  print(paste("Optimal K value:",k_optimal))
+  return(testmod)
+}
+```
+
+### Part 3 (60%)
+
+In this part, you will need to use a $k$-NN classifier to fit models on the 
+actual dataset. If you weren't able to successfully write a $k$-NN classifier in
+Part 2, you're permitted to use a built-in package for it. If you take this route, 
+you may need to write some code to standardize the variables and select 
+$k$, which `knnclass()` from part 2 already does. 
+
+Now fit 4 models and produce 4 sets of predictions of `spam` on the test set:
+
+1. `knnclass()` using all predictors except for `capital_run_length_average` 
+(say, if we were distrustful of our imputation approach). Call these predictions
+`knn_pred1`.
+
+```{r}
+set.seed(1)
+knn_pred1 <- knnclass(train[-c(55,58)],test[-55],train$spam)
+```
+
+2. `knnclass()` using all predictors including `capital_run_length_average` with
+the imputed values. Call these predictions `knn_pred2`.
+
+```{r}
+set.seed(1)
+knn_pred2 <- knnclass(train[-58],test,train$spam)
+```
+
+3. logistic regression using all predictors except for `capital_run_length_average`.
+Call these predictions `logm_pred1`.
+
+```{r}
+set.seed(1)
+mod1 <- glm(spam ~ ., data=train[-55], family="binomial")
+logm_probs1 <- predict(mod1,test)
+logm_pred1 <- rep("0", nrow(test))
+logm_pred1[logm_probs1  > .5] <-  "1"
+```
+
+4. logistic regression using all predictors including `capital_run_length_average` 
+with the imputed values. Call these predictions `logm_pred2`.
+
+```{r}
+set.seed(1)
+mod2 <- glm(spam ~ ., data=train, family="binomial")
+summary(mod2)
+logm_probs2 <- predict(mod2,test)
+logm_pred2 <- rep("0", nrow(test))
+logm_pred2[logm_probs2  > .5] <-  "1"
+```
+
+In 3-4 sentences, provide a quick summary of your second logistic regression model
+(model 4). Which predictors appeared to be most significant? Are there any
+surprises in the predictors that ended up being significant or not significant?
+
+*Comments:*
+We see that the characters 3 and 4 (! and the dollar sign respectively) are highly significant predictors of spam mail, as most scams are involving exciting fake investments. Similarly the word "free" is a significant predictor, trying to fool people into a fake free prize. Additionally, the longest run of capital letters is a significant predictor, which could be indicative of human grammatical errors (as scammers intentionally try to mimimic human errors to make them appear more real. However, "recieve" and "credit" are not significant and "money" is only significant to the 0.5 level, which are surprising because they do not seem much different than "free" and the dollar sign.
+
+Submit a .csv file called `assn2_NETID_results.csv` that contains 5 columns:
+
+* `capital_run_length_average`: the predictor in your test set that now contains
+the imputed values (so that we can check your work on imputation).
+
+* `knn_pred1`
+
+* `knn_pred2`
+
+* `logm_pred1`
+
+* `logm_pred2`
+
+Make sure that row 1 here corresponds to row 1 of the test set, row 2 
+corresponds to row 2 of the test set, and so on.
+
+```{r}
+assn2_my354_results <- data.frame(c(1:nrow(test)))
+assn2_my354_results$capital_run_length_average <- test$capital_run_length_average
+assn2_my354_results$knn_pred1 <- knn_pred1[1:nrow(test)]
+assn2_my354_results$knn_pred2 <- knn_pred2[1:nrow(test)]
+assn2_my354_results$logm_pred1 <- logm_pred1
+assn2_my354_results$logm_pred2 <- logm_pred2
+assn2_my354_results <- assn2_my354_results[-1]
+write.csv(assn2_my354_results,"assn2_my354_results.csv")
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Problem 2: Gradient descent (25 points)
+
+Stochastic gradient descent is a variation on "ordinary" or "batch" gradient descent. They both are based on the fact that the gradient of a function points in the direction of greatest increase, and therefore the negative gradient gives us the direction of greatest decrease. For this problem you get some practice using both forms of gradient descent for logistic regression. 
+
+For $i = 1,2,...,n$ we have data points $X_i = (1, X_{i1}, X_{i2})^T \in \mathbb{R}^3$ with binary outcomes $Y_{i} \in \{ 0, 1 \}$. For logistic regression, we attempt to classify the $i$th data point as either $0$ or $1$ based on $X_{i}$. To do so, we need to minimize the logistic loss function:
+
+$$
+\ell(\beta) = \ell(\beta_{0}, \beta_{1}, \beta_{2}) = \sum\limits_{i = 1}^{n}
+\left\{ -Y_i X_i^{T}\beta + \log \left(1 + e^{X_i^T \beta} \right) \right\}.
+$$
+where $X_i^T \beta = \beta_0 + X_{i1}\beta_1 + X_{i2}\beta_2$, so that an intercept is included.
+
+### Part (a)
+
+Calculate the gradient of $\ell(\beta))$. Show that $\ell(\beta)$ is a convex function of $\beta$, and therefore has a unique minimum.
+
+*Solution:*
+
+$$
+\nabla\ell(\beta) = \sum\limits_{i=1}^{n} \left( -Y_iX_i^T +\frac{1}{1+e^{X_i^T \beta}}*e^{X_i^T \beta}*X_i^T\right)
+$$
+We know that sum of convex functions is a convex function. So to prove that $\ell(\beta)$ is convex, we just need to prove that each part is convex. First we know that $-Y_i X_i^{T}\beta$ is convex because it is just a linear function. So we just need to prove that $\log \left(1 + e^{X_i^T \beta} \right)$ is a convex function. We can also prove that any function is convex by showing that its second derivative is positive. Let's observe the seocnd derivative of $\log \left(1 + e^{X_i^T \beta} \right)$:
+$$
+f(\beta) = \log \left(1 + e^{X_i^T \beta} \right) \\
+f'(\beta) = \frac{e^{X_i^T \beta}}{1+e^{X_i^T \beta}}*X_i^T \\ 
+f''(\beta) = \frac{e^{X_i^T \beta}}{1+e^{X_i^T \beta}}*X_i^T - \frac{(e^{X_i^T \beta})^2}{(1+e^{X_i^T \beta})^2}*X_i^TX_i
+$$
+Here we can see that $\frac{e^{X_i^T \beta}}{1+e^{X_i^T \beta}} = \pi_i$ where $\pi_i$ is the probability of classifying $Y_i=1$. So we can view this as $f''(\beta) = \pi_i(1-\pi_i)X_i^TX_i$. We can see that $\pi_i(1-\pi_i)$ is just the Bernoulli variance with probability of succes $\pi_i$, which is positive. Also, $X_i^TX_i$ is a positive definite square matrix where $X_i$ has full column rank, because for any vector $v$, $v_TX_i^TX_iv = (X_iv)^T(Xv) = \|X_iv\|_2^2 \geq 0$. Thus the second derivative is positive and $\log \left(1 + e^{X_i^T \beta} \right)$ is convex and therefore the enitre function $\ell(\beta)$ is convex.
+
+
+### Part (b)
+
+For this part of the problem you will generate data and compute the maximum likelihood estimator using the standard approach, which is Newton's algorithm. Simulate data for this problem as follows:
+```{r}
+n = 1000
+x1 = runif(n, min=-5, max=5)
+x2 = runif(n, min=3, max=9)
+x = data.frame(one=1, x1, x2)
+
+beta = c(2.5, 1.0, -.5);
+p = exp(as.matrix(x) %*% beta) / (1 + exp(as.matrix(x) %*% beta))
+y = sapply(p, function(p) {rbinom(1,1,p)})
+```
+
+\vskip20pt
+Next fit the logistic regression model using 
+the built-in \texttt{glm} function:
+```{r}
+model <- glm(y ~ x1+x2, family=binomial(link='logit'), data=x)
+beta_op <- model$coefficients
+print(summary(model))
+```
+
+```{r}
+#Here we actually generate our data and run the model 1000 times.
+#We save our coefficients so later we can observe the mean coefficients and calculate the standard error to compare to above.
+set.seed(1)
+#Figure out how to properly store these coefficients? rbind() to a new dataframe?
+coefficientsdf <- data.frame("Intercept"=as.numeric(),"Beta1"=as.numeric(),"Beta2"=as.numeric())
+for (i in c(1:1000)) {
+  n = 1000
+  x1 = runif(n, min=-5, max=5)
+  x2 = runif(n, min=3, max=9)
+  x = data.frame(one=1, x1, x2)
+  
+  beta = c(2.5, 1.0, -.5);
+  p = exp(as.matrix(x) %*% beta) / (1 + exp(as.matrix(x) %*% beta))
+  y = sapply(p, function(p) {rbinom(1,1,p)})
+  
+  newmod <- glm(y ~ x1+x2, family=binomial(link='logit'), data=x)
+  coefficientsdf <- rbind(c(newmod$coefficients[[1]],newmod$coefficients[[2]],newmod$coefficients[[3]]),coefficientsdf)
+}
+names(coefficientsdf)[1] <- "Intercept (Beta0)"
+names(coefficientsdf)[2] <- "Beta1"
+names(coefficientsdf)[3] <- "Beta2"
+meancoef <- colMeans(coefficientsdf)
+#Standard error is sd/sqrt(n), however this doesn't give a similar stanrard error.
+#However, just the standard deviation gives a very similar answer.
+sderrors <- apply(coefficientsdf, 2, sd)
+print("Mean Coefficients:")
+meancoef
+print(paste("Sum of Squared of Differences:",sum((beta_op-meancoef)^2)))
+print("Standard Errors")
+sderrors
+```
+
+Do you recover the true coefficients? Note that this uses ``Fisher scoring'' which is the same as Newton's algorithm.
+Run this simulation many times, keeping track of the coefficients $\hat\beta = (\hat\beta_0, \hat\beta_1,\hat\beta_2)$.
+Using these values, estimate the standard errors of the coefficients. Do they agree with the
+standard errors shown by \texttt{summary(model)}? Comment on your findings.
+
+*Comments:*
+After generating data and fitting the model 1000 times, my mean coefficients are very similar to the true beta (the sum of squared differences between the true beta and the mean coefficients is 0.11). We are essentially recovering the true coefficients. Additionally, the standard errors are very similar.
+
+### Part (c)
+
+The simulated data $\{(X_i, Y_i)\}_{i=1}^{1000}$ defines a loss function $\ell(\beta)$ that we'll now minimize using \textit{batch} gradient descent, where the full data set is used to compute the gradient. Starting with a uniform model, with $\beta = (\beta_{0}, \beta_{1}, \beta_{2}) = (0,0,0)$, compute the negative gradient evaluated at point, adjust your estimate accordingly, and repeat the process until it (hopefully) converges. 
+You will need to pick a step size, $\eta_t$, the form of which you are free to decide on (either constant or varying with step $t$). Comment on your choice of $\eta_t$. It is also up to you to decide when $\ell$ is approximately minimized. Does it converge? If so, how do you assess convergence? How long does it take to converge? Do you recover the true model? Comment on your findings.
+
+```{r}
+#Here let's regenerate our data with a specific seed so our findings for the rest of problem 2 are reproduceable.
+set.seed(1)
+n = 1000
+x1 = runif(n, min=-5, max=5)
+x2 = runif(n, min=3, max=9)
+x = data.frame(one=1, x1, x2)
+
+beta = c(2.5, 1.0, -.5);
+p = exp(as.matrix(x) %*% beta) / (1 + exp(as.matrix(x) %*% beta))
+y = sapply(p, function(p) {rbinom(1,1,p)})
+```
+
+```{r}
+#Define loss function.
+loss <- function(beta,x,y) {
+  lossvalue <- 0
+  for (i in c(1:nrow(x))) {
+    ichange <- -y[i]%*%as.matrix(x[i,])%*%beta + log(1+exp(as.matrix(x[i,])%*%beta))
+    lossvalue <- lossvalue + ichange
+  }
+  return(lossvalue)
+}
+
+#Define a function that calculates the gradient for a given beta.
+grad <- function(beta,x,y) {
+  gradient = as.matrix(c(0,0,0), ncol=1)
+  for (i in c(1:nrow(x))) {
+    ichange <- as.matrix(c(-y[i]%*%as.matrix(x[i,]) + drop(exp(as.matrix(x[i,])%*%beta)/(1+exp(as.matrix(x[i,])%*%beta)))%*%as.matrix(x[i,])),ncol=1)
+    gradient <- gradient+ichange
+  }
+  return(gradient)
+}
+```
+
+```{r}
+beta <- as.matrix(c(0,0,0),ncol=1)
+t <- 1
+C <- .01
+repeat{
+  prevbeta <- beta
+  step_size <- C/sqrt(t)
+  beta <- beta - step_size*grad(beta,x,y)
+  t <- t+1
+  #We can check is the change in beta is minimal as convergence.
+  #But this essentially is just capping the number of iterations, because step_size decreases each time.
+  #Let's just make sure our loss function is no longer decreasing much for our convergence criteria.
+  if(abs(loss(beta,x,y)-loss(prevbeta,x,y)) < 0.025) {
+    break
+  }
+}
+beta_bgd <- beta
+t
+beta_bgd
+```
+
+*Comments:*
+I set my step size constant through trial and error. If the step size constant was too large, then the Beta would have too large an update and the loss would be extremely high. It would be osicallting around the minimum, not approaching it. If too small, then we are running too many iterations. I use the aggressive approach to changing the step size by dividing our constant by sqrt(t), where t is the number of iterations. My convergance criteria was to see if the absolute change in the loss function was less than 0.025. Each iteration takes a long time because we are calculating the entire gradient and the loss function for beta and our previous beta. It only take 44 iterations to converge under this criteria. **However, if I decrease my convergence criteria to the change being less than 0.01 or change my step size factor to t instead of sqrt(t), then after around 46 iterations my Beta starts to get further away from the true Beta and the loss begins to grow larger. I get a lot oscillation which is weird since my step size is still decreasing with each iteration.**
+
+### Part (d)
+
+Now repeat the above, but use \textit{stochastic} gradient descent, where you compute the gradient using only a \textit{single} data point in each step. Like before, you will need to pick a step size, $\eta_t$, the form of which you are free to decide on (either constant or varying with step $t$). How does the step size $\eta_t$ that you choose differ from that used for batch gradient descent? Now how do you assess convergence? Do you recover the true model? Comment on the speed of convergence and computation required for both batch and stochastic gradient descent.
+
+```{r}
+#Funtion to choose optimal constant to minimize loss function.
+#Found that there was lots of differences in convergence rate for SGD depending on C.
+#So let's choose the C that minimizes loss over 100 iterations (thus assuming it converges faster).
+set.seed(1)
+constants <- (seq(0.1,0.5,.01))
+losses <- rep(0,length(constants))
+for (j in c(1:length(constants))) {
+  beta <- as.matrix(c(0,0,0),ncol=1)
+  C <- constants[j]
+  for (l in c(1:100)) {
+    prevbeta <- beta
+    row <- sample(1:nrow(x),1)
+    step_size <- C/sqrt(l)
+    beta <- beta-step_size*grad(beta,x[row,],y[row])
+  }
+  losses[j] <- loss(beta,x,y)
+}
+C_minloss <- constants[match(min(losses),losses)]
+C_minloss
+```
+
+```{r}
+set.seed(1)
+beta <- as.matrix(c(0,0,0),ncol=1)
+t <- 1
+repeat{
+  j <- sample(1:nrow(x),1)
+  prevbeta <- beta
+  #We want to reduce step size at each iteration.
+  step_size <- C_minloss/sqrt(t)
+  #Calculate new beta in the direction of a random partial derivative.
+  beta <- beta-step_size*grad(beta,x[j,],y[j])
+  #print(t)
+  t <- t+1
+  #Here let's set convergence as the change in beta being less than 10^-9.
+  #Because we are decreasing step size each time, this is effectively setting a limit on the number of iterations.
+  #We could check is the loss is no longer decreasing like in part(c), but this is not computationally efficient.
+  if(sum((beta-prevbeta)^2) < 10^-(11)) {
+    break
+  }
+}
+beta_sgd <- beta
+t
+beta_sgd
+```
+*Comments:*
+After running our first chunk of code, we find the optimal constant to begin the step size with is 0.31 (compared to 0.01 in batch gradient descent). We then use that as our initial step size, and then we continue to decrease the step size by dividing the constant by the square root of the number of iterations. Here, I assess convergence by the sum of squared differences in beta being less than 10^-11. This effectively sets our convergence criteria as the number of steps to occur. After 589,995 iterations, our beta converges to the above. Each iterations computes significantly faster than in batch gradient descent, however since we are doing so many iterations it takes several minutes to run. Our beta converges much closer to the true beta than our batch gradient descent alogrithm above.
+
+# Problem 3: Cross validation (20 points)
+
+(a) Generate a simulated data set as follows:
+
+```{r}
+set.seed(1)
+x <- rnorm(100)
+y <- x - 2*x^2 + rnorm(100)
+```
+
+In this data set, what is $n$ and what is $p$? Write out the model used to generate the data 
+in equation form.
+
+*Solution:*
+n=100 because we have n data points/observations and p=2 because we have 2 predictor columns (x and x^2, there is no intercept and the epsilon term are just normally distributed errors). $Y = f(X) = X - 2X^2 + \epsilon$ where $\epsilon ~ \sim \mathcal{N}(0,1)$.
+
+(b) Create a scatterplot of $X$ against $Y$. Comment on what you find.
+```{r}
+par(mfrow=c(2,2))
+plot(x,y)
+hist(x,breaks=10)
+```
+
+*Solution:*
+The scatterplot looks like a concave down quadratic function. However, the points are not clearly fit along a single line, there is error around what appears to be a quadratic shape. The points themselves appear normally distributed across x. A histogram plot of x confirms this. This makes sense because we are selecting x values from the rnorm(100) function which chooses 100 random points from the standard normal distribution.
+
+(c) Set a random seed, and then compute the Leave-One-Out Cross-Validation (LOOCV) errors that result from fitting the following four models using least squares:
+         
+i. $Y = \beta_0 + \beta_1 X + \epsilon$
+ii. $Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \epsilon$
+iii. $Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \beta_3 X^3 + \epsilon$ 
+iv. $Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \beta_3 X^3 + \beta_4 X^4 + \epsilon$ 
+
+Note you may find it helpful to use the data.frame() function
+to create a single data set containing both $X$ and $Y$. For linear regression, the LOOCV error can be computed via the following short-cut formula:
+$$  \text{LOOCV Error} = \frac{1}{n}\sum_{i=1}^{n} \bigg( \frac{Y_i - \widehat{Y_i}}{1-H_{ii}} \bigg)^2$$
+where $H_{ii}$ is the $i^\text{th}$ diagonal entry of the projection matrix $H = \textbf{X}(\textbf{X}^T\textbf{X})^{-1}\textbf{X}^T$, and $\textbf{X}$ is a matrix of predictors (the design matrix). This formula is an alternative to actually carrying out the $n = 100$ regressions you would otherwise need for LOOCV.
+
+```{r}
+set.seed(1)
+df <- data.frame("Y"=y, "Intercept"=rep(1,100), "X"=x, "X2"=x^2, "X3"=x^3, "X4"=x^4)
+
+#Let's define a function that takes a model and the model the data was fit on and outputs the LOOCV error.
+LOOCVerror <- function(model,data) {
+	Xmat <- as.matrix(data[-1])
+	H <- Xmat%*%solve(t(Xmat)%*%Xmat)%*%t(Xmat)
+	Y <- data[1]
+	Yhat <- predict(model,data[-1])
+	error <- 1/nrow(data)*sum(((Y - Yhat)/(1-diag(H)))^2)
+	return(error)
+}
+mod1 <- lm(Y ~ X, data=df)
+LOOCVerror(mod1,df[1:3])
+
+mod2 <- lm(Y ~ X + X2, data=df)
+LOOCVerror(mod2,df[1:4])
+
+mod3 <- lm(Y ~ X + X2 + X3, data=df)
+LOOCVerror(mod3,df[1:5])
+
+mod4 <- lm(Y ~ X + X2 + X3 + X4, data=df)
+LOOCVerror(mod4,df[1:6])
+```
+
+(d) Repeat (c) using another random seed, and report your results.
+Are your results the same as what you got in (c)? Why?
+```{r}
+set.seed(2)
+x <- rnorm(100)
+y <- x - 2*x^2 + rnorm(100)
+df <- data.frame("Y"=y, "Intercept"=rep(1,100), "X"=x, "X2"=x^2, "X3"=x^3, "X4"=x^4)
+
+newmod1 <- lm(Y ~ X, data=df)
+LOOCVerror(mod1,df[1:3])
+
+newmod2 <- lm(Y ~ X + X2, data=df)
+LOOCVerror(newmod2,df[1:4])
+
+newmod3 <- lm(Y ~ X + X2 + X3, data=df)
+LOOCVerror(newmod3,df[1:5])
+
+newmod4 <- lm(Y ~ X + X2 + X3 + X4, data=df)
+LOOCVerror(newmod4,df[1:6])
+```
+
+*Solution: My results are similar to those above. This makes sense because we are just regenerating the data with a different random seed, but modeling the data in the same way.
+
+(e) Which of the models in (c) had the smallest LOOCV error? Is this what you expected? Explain your answer.
+
+*Solution:*
+We have the highest error rate for the linear model. We have the lowest error rate for the quadratic model. Our error rate for the higher order polynomial models (p=3 and p=4) are lower than that of the linear model, but slightly higher than that of the quadratic model. This makes sense because again the the data is fit by the equation: $Y = f(X) = X - 2X^2 + \epsilon$.
+
+
+(f) Comment on the statistical significance of the coefficient estimates that results from fitting each of the models in (c) using least squares. Do these results agree with the conclusions drawn based on the cross-validation results?
+
+```{r}
+summary(mod1)
+summary(mod2)
+summary(mod3)
+summary(mod4)
+```
+*Solution:*
+In the polynomial models (models 2-4), only the X and X^2 terms are statistically significant. Again this makes sense because our data is modeled with a quadratic equation. This is in agreement with our cross-validation results, which suggest the quadratic model is the best because it gives the lowest error rate. Adding more statistically insignifcant predictors ends up increasing our error rate (models 3 and 4). However, in model 1, we are missing the X^2 predictor. So all the intercept and X predictors are both statistically significant, but our cross-validation error rate is still too high, because we are trying to fit our data with too simple a model (linear model on quadratic data).
+
