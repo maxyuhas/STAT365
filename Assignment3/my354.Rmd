@@ -1,0 +1,306 @@
+---
+title: "Assignment 3"
+author: "Statistics and Data Science 365/565"
+date: "Due: October 9 (before midnight)"
+output:
+  pdf_document: 
+     highlight: haddock
+  html_document: default
+params:
+  ShowCode: no
+  ShowOut: no
+---
+
+```{r,echo=FALSE,include=FALSE}
+library(MASS)
+library(glmnet)
+```
+
+\newcommand{\trans}{{\scriptstyle T}}
+\newcommand{\reals}{\mathbb R}
+\newcommand{\argmin}{\mathop{\rm arg\,min}}
+\let\hat\widehat
+
+**I worked with Jackson Simon on Problem 1, Part 2 and Problem 2, Part B.**
+
+This homework treats variable selection and shrinkage. Problem 1 is a conceptual question, and Problems 2 and 3 are applied problems. Throughout this assignment, remember that for a vector $\beta \in \mathbb R^p$, 
+$$
+\begin{aligned}
+\Vert{\beta \Vert}_2 &= \sqrt{\sum_{j = 1}^p \beta_j^2} \\
+\Vert{ \beta \Vert}_1 &= \sum_{j = 1}^p | \beta_j |
+\end{aligned}
+$$
+
+# Problem 1 (25 points) LASSO Risk
+
+\def\s{{(s)}}
+\def\lasso{{(\lambda)}}
+
+Suppose we estimate $\beta$ in a linear regression model by minimizing
+$$
+\hat \beta^{(s)} = \argmin_{\beta \in \mathbb R^{p+1}} \Vert{ Y - X \beta \Vert}_2^2 \text{\ \ subject to\  \ } \Vert{ \beta \Vert}_1 \le s
+$$
+for a particular value of $s$. 
+
+## Part 1.
+For (a) through (e), indicate which of (i) through (v) is correct, and justify your answer.
+
+### Part a.
+As we increase $s$ from 0, the training RSS of $\hat \beta^\s$ will:
+
+(i) increase initially, and then eventually start decreasing in an
+inverted U shape
+
+(ii) decrease initially, and then eventually start increasing in a U shape
+
+(iii) steadily increase
+
+(iv) steadily decrease
+
+(v) remain constant
+
+**Solution: (iv) steadily decrease**
+As $s$ increases from zero, we are allowing the size of our $\beta_j$ coefficients to increases. Starting at $s$ zero, we are only using the intercept as our $\hat\beta$ and forcing other coefficients to be zero. Adding more parameters to our model by allowing the other coefficients to be nonzero, we are reducing RSS. With training data, adding more and more parameters into our model will continously decrease RSS
+
+### Part b.
+Repeat (a) for the test RSS of $\hat\beta^\s$.
+
+**Solution: (ii) decrease initially, and then eventually start increase in a U shape**
+As stated above, $s$ increasing from zero, we are adding more parameters to our model by allowing the other coefficients to be nonzero, we are reducing RSS. However, since we fit our model to the training data, increasing s and allowing too many parameters we will begin to overfit our test data and RSS will begin to increase again. Think of how 1-NN fits the training data perfectly but overfits the test data.
+
+### Part c.
+Repeat (a) for the variance of $\hat\beta^\s$.
+
+**Solution: (iii) steadily increase**
+As our model becomes more complex (i.e. more predictor variables used), variance increases. So as $s$ increases and we include more parameters in our model, variance will steadily increase.
+
+### Part d.
+Repeat (a) for the squared bias of $\hat\beta^\s$.
+
+**Solution: (iv) steadily decrease**
+Contrary to above, as our model becomes more complex, squared bias decreases. So as $s$ increases and we include more parameters in our model, squared bias will steadily increase. For s approaching infinity (or lambda=0), then we have an unbiased estimator for the OLS model.
+
+### Part e.
+Repeat (a) for the irreducible error of $\hat\beta^\s$.
+
+**Solution: (v) remain constant**
+As the name suggests, the irreducible error is thus irreducible error. Our data is inherently noisy as thus is modeled as $y_i = f(X_i) + \epsilon_i$ where epsilon is irreducible error. No matter what function we choose for $f(X_i)$ (i.e. what parameters and their coefficients we choose to include by changing the values of $s$), these errors will remain constant.
+
+## Part 2.
+Now we will compute the lasso estimates on simulated data. That is, we will find the minimizer
+$$
+\hat \beta^\lasso = \argmin_{\beta \in \mathbb R^{p+1}} \Vert{ Y - X \beta \Vert}_2^2 + \lambda \Vert{\beta \Vert}_1
+$$
+where $\lambda$ is some fixed constant. 
+
+### Part a.
+What do you think is the relationship between $s$ in Part 1 and $\lambda$? As we increase $\lambda$ from $0$, what will happen to the bias and variance of our estimator $\hat \beta^\lasso$?
+
+**Solution:**
+Comparing this equation to the one in Part 1, we can see that large values of $\lambda$ correspond to small values of $s$. As we increase the weight of the penalty ($\lambda$), we want to decrease the size of the beta coefficients ($s$) to compensate for the penalty increase and continue to minimize RSS. Thus as we increase $\lambda$ from $0$, we will be including less and less parameters in our model according to the following:
+$$
+\hat\beta = \begin{cases}
+Y-\lambda, & \text{if}\ Y > \lambda \\
+0, & \text{if}\ Y \leq |\lambda| \\
+Y+\lambda, & \text{if}\ Y < -\lambda \\
+\end{cases}
+$$
+Therefore model complexity will decrease, thus variance will decrease and squared bias will increase (the opposite of what we see when $s$ increases).
+
+### Part b.
+Generate independent predictors, $X_1, X_2, X_3, X_4$, and store them in the $n \times 4$ matrix $X$, as follows:
+```{r}
+n <- 1000
+p <- 4
+X <- matrix(rnorm(n*p, mean=1), nrow = n, ncol = p)
+```
+Also generate an outcome vector $Y \in \mathbb R^n$ according to the model:
+$$
+Y_i = 17 + (.005)* X_{i1} + 117 * X_{i2} + .6 * X_{i3} + 52 * X_{i4} + \epsilon_i
+$$
+where the $\epsilon_i \sim N(0, 1)$. 
+
+For various values of $\lambda$ (between $0$ and $0.1$), fit a lasso model (using the \texttt{glmnet} package) to the generated data, and store each fitted lasso estimate $\hat \beta^{(\lambda)}$. For $B$ times, repeat the process of generating data and, for the same set of values for lambda, fitting a lasso and storing the result. (It is up to you to decide how big $B$ should be. i.e. How many repetitions to do.) To estimate the bias and variance, let
+$$
+\hat{\mathbb E} \hat \beta^{(\lambda)} = \frac{1}{B} \sum_{b = 1}^B \hat \beta^{(b,\lambda)}
+$$
+where $\hat \beta^{(b, \lambda)}$ represents the vector of lasso coefficients on round $b$ and penalization parameter $\lambda$. 
+
+Estimate the squared bias via:
+$$
+\widehat{\mbox{Bias}^2} (\hat \beta^{(\lambda)}) = \Vert{ \hat {\mathbb E} \hat\beta^{(\lambda)} - \beta \Vert}_2^2
+$$
+And estimate the variance via:
+$$
+\widehat{\mbox{Var}} (\hat \beta^{(\lambda)}) = \frac{1}{B} \sum_{b = 1}^B \Vert{\hat \beta^{(b,\lambda)} -  
+\hat{\mathbb E} \hat \beta^{(\lambda)} \Vert}_2^2 
+$$
+
+Plot the estimated bias and variance for each $\lambda$. For a large enough number of repetitions $B$, you should see a clear pattern. Summarize your results and compare them to Part (a).
+
+```{r}
+#Generate our y values, we are going to need to do this B times, lets just set B to 100 first.
+B <- 1000
+lambdas <- seq(0,0.1,.005)
+coefficients <- array(data = rep(0,B*length(lambdas)*4), dim =c(B,length(lambdas),4))
+beta_vec <- as.vector(c(.005,117,.6,52))
+
+for (i in 1:B) {
+  errors <- rnorm(1000)
+  y <- 17 + X%*%beta_vec + errors
+  mod <- glmnet(X, y, family="gaussian", standardize=TRUE, alpha=1, lambda=lambdas)
+  for (j in c(1:length(lambdas))) {
+    coefficients[i,j,] <- coef(mod)[2:5,j]
+  }
+}
+```
+
+```{r}
+squaredbias <- rep(0,length(lambdas))
+variance <- rep(0,length(lambdas))
+expectations <- array(data = rep(0,length(lambdas)*4), dim = c(length(lambdas),4))
+for (i in 1:length(lambdas)) {
+  expectations[i,] <- colMeans(coefficients[,i,])
+  squaredbias[i] <- sum((expectations[i,] - beta_vec)^2)
+  variance[i] <- sum(colMeans(t(apply(coefficients[,i,], 1, function(x) (x-expectations[i,])^2))))
+}
+
+plot(lambdas,rev(variance),col="blue",type="b",ylim=c(0,.03),main="Squared Bias and Variance by Lambda")
+par(new=T)
+plot(lambdas,rev(squaredbias),ylim=c(0,.03),col="red",type="b",xlab="Lambda")
+legend("topleft",legend=c("Variance", "Squared Bias"),col=c("blue","red"),lty=1)
+```
+
+**Solution:**
+Acording to my results here, squared bias increase and variance decreases as lambda increases ($s$ decreases). This is in agreement with what I argue in part 1, that variance constantly increases and squared bias constantly decreases.
+
+# Problem 2 (15 points) Boston Housing Values
+The value of homes in Boston is a dataset included in the \texttt{MASS} library in R with the name \texttt{Boston}. You may use the \texttt{glmnet} package to fit the lasso and ridge regression models.
+
+```{r,echo=FALSE,include=FALSE}
+library(MASS)
+library(corrplot)
+```
+
+## Part a. 
+Start by doing some data exploration. What are $n$ and $p$ in this dataset? Are there any missing data points, outliers, or explanatory variables that seem highly correlated with each other? What variables seem most closely associated with the outcome variable, \texttt{medv}? You are not limited to these questions; examine whatever you think is interesting and reasonable. Show plots, accompanied with comments, that illustrate your findings.
+
+```{r}
+dim(Boston)
+summary(is.na(Boston))
+summary(Boston)
+plot(Boston)
+cor1 <- round(cor(Boston, use = "pairwise.complete.obs"),2)
+corrplot.mixed(cor1,lower.col="black", upper = "ellipse", tl.col = "black", number.cex=.7, 
+                order = "FPC", tl.pos = "lt", tl.cex=.7, sig.level = .05)
+```
+
+**Comments:**
+By using the \texttt{dim()} function, we see that n is 506 (number of observations) and p is 14 (number of predictor variables). Additionally, there are no missing values in the dataset. Then using the \texttt{corrplot.mixed} function from the \texttt{corrplot} library, we see that our strongest associations between outcome variable \texttt{medv} and the predictor variables is a 0.7 R-squared with the numbers of rooms (\texttt{rm}) and a -0.74 correlation with the percent in the "lower status" of the populations (\texttt{lstat}). These seem to make sense, I am surprised to see that there is a strong negative correlation (-0.51) with the pupil-to-teacher ratio in local schools (\texttt{ptratio}). It is worth noting that many predictor variables are correlated with each other. For example, \texttt{tax} and \texttt{rad} (index of highway accessibility) are strongly positively correlated (0.91) while \texttt{dis} and \texttt{indus} are strongly negatively correlated (-0.71), this second example suggests that the largest employment centers are retail oriented. Observing the summary data for the Boston housing data, I do not see many extreme values.
+
+## Part b. 
+Randomly sample $100$ rows of the Boston dataset to use as the test set, and use the rest for training. Fit lasso and ridge regression models to predict \texttt{medv} with all other variables as predictors. For various values of $\lambda$, use cross-validation to select an optimal values to use in the lasso and ridge regression models. (You may use the \texttt{cv.glmnet()} in the \texttt{glmnet} package to do the cross-validation.) Also, plot the model coefficients against the values of $\lambda$. How does each coefficient change as $\lambda$ increases in the two models? How is this behavior similar or different between the lasso and ridge regression approaches?
+
+```{r}
+set.seed(1)
+testrows <- sample(nrow(Boston),100)
+test <- Boston[testrows,]
+train <- Boston[-testrows,]
+
+#lasso
+cvfit <- cv.glmnet(x=as.matrix(train[-14]),y=as.matrix(train[14]),standardize=TRUE,nfold=10,alpha=1)
+cvfit$lambda.min
+predict(cvfit, newx = as.matrix(test[-14]), s = "lambda.min")
+
+#ridge
+cvfit2 <- cv.glmnet(x=as.matrix(train[-14]),y=as.matrix(train[14]),standardize=TRUE,nfold=10,alpha=0)
+cvfit2$lambda.min
+predict(cvfit2, newx = as.matrix(test[-14]), s = "lambda.min")
+
+#Color Vector
+colors <- rainbow(n=length(Boston))
+
+#plot lasso coefficients by lambda value
+plot(x=as.vector(unlist(cvfit$glmnet.fit[5])), y=as.vector(coef(cvfit$glmnet.fit)[2,]),
+     xlab = "Lambda", ylab="Coefficient Size", main="Coefficients Changing by Lambda - LASSO",
+     type = "b",ylim=c(-18,5),col=colors[1])
+for (i in 3:length(Boston)) {
+  lines(x=as.vector(unlist(cvfit$glmnet.fit[5])), y=as.vector(coef(cvfit$glmnet.fit)[i,]),
+        type = "b",ylim=c(-20,30),col=colors[i])
+}
+
+#plot ridge coefficients by lambda value
+plot(as.vector(unlist(cvfit2$glmnet.fit[5])), as.vector(coef(cvfit2$glmnet.fit)[2,]),
+     xlab = "Lambda", ylab="Coefficient Size", main="Coefficients Changing by Lambda - Ridge",
+     type = "b",ylim=c(-14,5),col=colors[1])
+for (i in 3:length(Boston)) {
+  lines(as.vector(unlist(cvfit2$glmnet.fit[5])), as.vector(coef(cvfit2$glmnet.fit)[i,]),
+        type = "b",col=colors[i])
+}
+```
+
+**Comments:**
+As lambda increases, our coefficients all shirnk in size. In ridge regression, the coefficients decrease in more curved shapes and assympotically approach zero. With lasso, coefficients decrease in a spline shape and some coefficients are set to zero. This is because lasso does coefficient by using the $\ell_1$ norm of the beta coefficients.
+
+# Problem 3 (25 points) 
+In this exercise, we will predict the number of applications received using the other variables in the \texttt{College} data set in the \texttt{ISLR} package. 
+```{r,echo=F,include=F}
+library(ISLR)
+```
+
+## Part a.
+Randomly sample $20$ percent of the rows of the dataset, and set this aside as a test set. Let the remainder be the training set.
+```{r}
+#Lets convert the private variable to a numeric binary indicator.
+College$Private <- ifelse(College$Private=="Yes",1,0)
+```
+
+```{r}
+set.seed(365)
+testrows <- sample(nrow(College),round(nrow(College)*.20))
+test <- College[testrows,]
+train <- College[-testrows,]
+```
+
+## Part b.
+Fit a linear model using least squares on the training set, and report the test error obtained.
+```{r}
+set.seed(365)
+mod1 <- lm(Apps ~ ., data=train)
+predapps <- predict(mod1, newdata=test[-2])
+MSE_lm <- sum((test[2]-predapps)^2)/nrow(test)
+MSE_lm
+```
+
+## Part c.
+Fit a ridge regression model on the training set, with $\lambda$ chosen by cross-validation. Report the test error obtained.
+```{r}
+set.seed(1)
+cvmod2_ridge <- cv.glmnet(x=as.matrix(train[-2]), y=as.matrix(train[2]),
+                          standardize=TRUE, nfold=10, alpha=0)
+predapps_ridge <- predict(cvmod2_ridge, newx=as.matrix(test[-2]), s="lambda.min")
+MSE_ridge <- sum((test[2]-predapps_ridge)^2)/nrow(test)
+MSE_ridge
+```
+
+## Part d.
+Fit a lasso model on the training set, with $\lambda$ chosen by cross-validation. Report the test error obtained, along with the number of non-zero coefficient estimates.
+```{r}
+set.seed(1)
+cvmod3_lasso <- cv.glmnet(x=as.matrix(train[-2]), y=as.matrix(train[2]),
+                          standardize=TRUE, nfold=10, alpha=1)
+predapps_lasso <- predict(cvmod3_lasso, newx=as.matrix(test[-2]), s="lambda.min")
+MSE_lasso <- sum((test[2]-predapps_lasso)^2)/nrow(test)
+MSE_lasso
+```
+
+## Part e.
+Comment on the results obtained. How accurately can we predict the number of college applications received? Is there much difference among the test errors resulting from these approaches? Which model do you think is better?
+
+**Comments:**
+The mean squared error is highest for the linear model, decreases for the LASSO model and decreases more with the ridge regression model (1,033,000 > 999,000 > 886,000). No there is no a significant difference, based on a different seed we would get different values and thus likely a different order in which models produce the lowest MSE. According to set.seed(1) ridge regression is the best model.
+
+
+
+
+
