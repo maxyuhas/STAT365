@@ -1,0 +1,1 @@
+This assignment is focused on building linear regression and k-NN classification models on Citi Bike data. Then it covers classifcation for mixture models. Additional information is included in the RMarkdown file, where the questions are given and my answers and comments are written out.
