@@ -9,4 +9,4 @@ Assignment 3 - Ridge Regression, LASSO Regression, Bias-Variance Tradeoff <br/>
 Assignment 4 - Decision Trees, Random Forest, Gradient Boosting <br/>
 Assignment 5 - Topic Modeling <br/>
 Assignment 6 - Word Embeddings (word2vec, GloVe, PMI) (coming soon) <br/>
-Assignment 7 - Neural Networks (coming soon) 
+Assignment 7 - Neural Networks and Autoencoders (coming soon) 
