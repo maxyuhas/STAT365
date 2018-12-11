@@ -8,5 +8,5 @@ Assignment 2 - k-NN Regression, Stochastic Gradient Descent, Cross Validation <b
 Assignment 3 - Ridge Regression, LASSO Regression, Bias-Variance Tradeoff <br/>
 Assignment 4 - Decision Trees, Random Forest, Gradient Boosting <br/>
 Assignment 5 - Topic Modeling <br/>
-Assignment 6 - Word Embeddings (word2vec, GloVe, PMI) (coming soon) <br/>
+Assignment 6 - Word Embeddings (word2vec, GloVe, PMI) <br/>
 Assignment 7 - Neural Networks and Autoencoders (coming soon) 
