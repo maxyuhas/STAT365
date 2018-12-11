@@ -7,6 +7,6 @@ Assignment 1 - Linear Regression, k-NN Classification <br/>
 Assignment 2 - k-NN Regression, Stochastic Gradient Descent, Cross Validation <br/>
 Assignment 3 - Ridge Regression, LASSO Regression, Bias-Variance Tradeoff <br/>
 Assignment 4 - Decision Trees, Random Forest, Gradient Boosting <br/>
-Assignment 5 - Topic Modeling
+Assignment 5 - Topic Modeling <br/>
 Assignment 6 - Word Embeddings (word2vec, GloVe, PMI) (coming soon)
-Assignment 7 - Neural Networks (coming soon)
+Assignment 7 - Neural Networks (coming soon) <br/>
